@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "perftool",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-c",
+        "import os, sys; from streamlit.web import cli; sys.argv = ['streamlit', 'run', 'app.py', '--server.port', os.environ.get('PORT', '8501'), '--server.headless', 'true']; sys.exit(cli.main())"
+      ],
+      "port": 8501,
+      "autoPort": true
+    },
+    {
+      "name": "demo-server",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "samples/demo_server.py"
+      ],
+      "port": 8088
+    }
+  ]
+}

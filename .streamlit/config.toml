@@ -1,0 +1,25 @@
+[server]
+address = "127.0.0.1"   # chỉ truy cập từ máy này (ứng dụng giữ thông tin đăng nhập)
+headless = false
+maxUploadSize = 200
+fileWatcherType = "auto"   # tự nạp lại code khi sửa, giữ nguyên phiên làm việc
+runOnSave = true
+
+[browser]
+gatherUsageStats = false
+
+# Khai báo riêng giao diện sáng / tối -> tự theo chế độ sáng/tối của máy (menu ⋮ → Settings để đổi tay).
+# (Trước đây chỉ khai [theme] primaryColor: Streamlit coi là 1 giao diện tuỳ biến cố định nền trắng.)
+[theme.light]
+primaryColor = "#1F4E9C"
+
+[theme.dark]
+primaryColor = "#6FA3EF"
+
+# Khai báo rõ màu chữ thanh bên (= mặc định của Streamlit): tránh cảnh báo lặp lại trên console trình duyệt
+# 'Invalid color passed for textColor in theme.sidebar: ""'
+[theme.light.sidebar]
+textColor = "#31333F"
+
+[theme.dark.sidebar]
+textColor = "#FAFAFA"

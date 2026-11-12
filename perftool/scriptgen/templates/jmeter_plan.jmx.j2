@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Kế hoạch JMeter sinh tự động bởi PerfTool - {{ generated_at }} | Dự án: {{ project_name|xc }} -->
+<!-- Chạy: jmeter -n -t {{ file_name }} -l results.jtl -q secrets.properties  (PERF_USERNAME / PERF_PASSWORD) -->
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="{{ project_name|jx }} - {{ scenario_name }}">
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments">
+        <collectionProp name="Arguments.arguments">
+          <elementProp name="USERNAME" elementType="Argument">
+            <stringProp name="Argument.name">USERNAME</stringProp>
+            <stringProp name="Argument.value">${__P(PERF_USERNAME,)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+          <elementProp name="PASSWORD" elementType="Argument">
+            <stringProp name="Argument.name">PASSWORD</stringProp>
+            <stringProp name="Argument.value">${__P(PERF_PASSWORD,)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+          </elementProp>
+        </collectionProp>
+      </elementProp>
+    </TestPlan>
+    <hashTree>
+      <ConfigTestElement guiclass="HttpDefaultsGui" testclass="ConfigTestElement" testname="HTTP Request Defaults">
+        <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments">
+          <collectionProp name="Arguments.arguments"/>
+        </elementProp>
+        <stringProp name="HTTPSampler.connect_timeout">{{ http_timeout * 1000 }}</stringProp>
+        <stringProp name="HTTPSampler.response_timeout">{{ http_timeout * 1000 }}</stringProp>
+        <stringProp name="HTTPSampler.implementation">HttpClient4</stringProp>
+      </ConfigTestElement>
+      <hashTree/>
+      <CookieManager guiclass="CookiePanel" testclass="CookieManager" testname="HTTP Cookie Manager">
+        <collectionProp name="CookieManager.cookies">
+{%- if auth_mode == 'static_headers' %}{% for c in cookies %}
+          <elementProp name="{{ c.name|jx }}" elementType="Cookie" testname="{{ c.name|jx }}">
+            <stringProp name="Cookie.value">{{ c.value|jx }}</stringProp>
+            <stringProp name="Cookie.domain">{{ c.domain|jx }}</stringProp>
+            <stringProp name="Cookie.path">{{ c.path|jx }}</stringProp>
+            <boolProp name="Cookie.secure">{{ 'true' if c.secure else 'false' }}</boolProp>
+            <longProp name="Cookie.expires">0</longProp>
+            <boolProp name="Cookie.path_specified">true</boolProp>
+            <boolProp name="Cookie.domain_specified">true</boolProp>
+          </elementProp>{% endfor %}{% endif %}
+        </collectionProp>
+        <boolProp name="CookieManager.clearEachIteration">false</boolProp>
+        <boolProp name="CookieManager.controlledByThreadGroup">false</boolProp>
+      </CookieManager>
+      <hashTree/>
+      <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP Header Manager">
+        <collectionProp name="HeaderManager.headers">
+          <elementProp name="" elementType="Header">
+            <stringProp name="Header.name">User-Agent</stringProp>
+            <stringProp name="Header.value">PerfTool-JMeter</stringProp>
+          </elementProp>
+{%- if auth_mode == 'static_headers' %}{% for k, v in static_headers.items() %}
+          <elementProp name="" elementType="Header">
+            <stringProp name="Header.name">{{ k|jx }}</stringProp>
+            <stringProp name="Header.value">{{ v|jx }}</stringProp>
+          </elementProp>{% endfor %}{% endif %}
+        </collectionProp>
+      </HeaderManager>
+      <hashTree/>
+{%- for sc in scenarios %}{% for tg in sc.groups %}
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="{{ sc.uc_code|jx }} - {{ sc.uc_name|jx }}{% if sc.groups|length > 1 %} [bậc {{ loop.index }}: +{{ tg.threads }} VU sau {{ tg.delay_s }}s]{% endif %}">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <intProp name="LoopController.loops">-1</intProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">{{ tg.threads }}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">{{ tg.ramp_s }}</stringProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.duration">{{ tg.duration_s }}</stringProp>
+        <stringProp name="ThreadGroup.delay">{{ tg.delay_s }}</stringProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+      </ThreadGroup>
+      <hashTree>
+{%- if multi_accounts %}
+        <!-- Mỗi VU lấy 1 tài khoản theo thứ tự VU bắt đầu: VU thứ i (tính chung mọi nhóm luồng) -> dòng (i-1) mod N của
+             accounts.csv. Không dùng CSV Data Set (đọc 1 dòng MỖI VÒNG LẶP -> VU lấy tài khoản ngẫu nhiên theo thời điểm). -->
+        <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="Chọn tài khoản kiểm thử cho VU">
+          <stringProp name="scriptLanguage">groovy</stringProp>
+          <stringProp name="parameters"></stringProp>
+          <stringProp name="filename"></stringProp>
+          <stringProp name="cacheKey">true</stringProp>
+          <stringProp name="script">if (vars.get("PT_ACC_OK") != null) return
+def lines = props.get("PT_ACC_LINES")
+if (lines == null) {
+  synchronized (props) {
+    lines = props.get("PT_ACC_LINES")
+    if (lines == null) {
+      def f = new File(org.apache.jmeter.services.FileServer.getFileServer().getBaseDir(), "accounts.csv")
+      lines = f.exists() ? f.readLines("UTF-8").findAll { it.trim() } : []
+      props.put("PT_ACC_NEXT", new java.util.concurrent.atomic.AtomicInteger(0))
+      props.put("PT_ACC_LINES", lines)
+    }
+  }
+}
+vars.put("PT_ACC_OK", "1")
+if (lines.isEmpty()) return
+int i = props.get("PT_ACC_NEXT").getAndIncrement() % lines.size()
+def cols = (lines[i] =~ /"((?:[^"]|"")*)"/).collect { it[1].replace('""', '"') }
+if (cols.size() &gt;= 2) { vars.put("USERNAME", cols[0]); vars.put("PASSWORD", cols[1]) }</stringProp>
+        </JSR223PreProcessor>
+        <hashTree/>
+{%- endif %}
+{%- if auth_mode == 'login_per_vu' and login.url %}
+        <OnceOnlyController guiclass="OnceOnlyControllerGui" testclass="OnceOnlyController" testname="Đăng nhập 1 lần / VU"/>
+        <hashTree>
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="{{ sc.uc_code|jx }} :: LOGIN">
+            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                  <stringProp name="Argument.value">{{ login.jmeter_body|x }}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+            <stringProp name="HTTPSampler.protocol">{{ login.u.protocol }}</stringProp>
+            <stringProp name="HTTPSampler.domain">{{ login.u.host|jx }}</stringProp>
+            <stringProp name="HTTPSampler.port">{{ login.u.port }}</stringProp>
+            <stringProp name="HTTPSampler.path">{{ login.u.path|jx }}</stringProp>
+            <stringProp name="HTTPSampler.method">{{ login.method }}</stringProp>
+            <stringProp name="HTTPSampler.contentEncoding">UTF-8</stringProp>
+            <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          </HTTPSamplerProxy>
+          <hashTree>
+{%- if login.content_type %}
+            <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Content-Type">
+              <collectionProp name="HeaderManager.headers">
+                <elementProp name="" elementType="Header">
+                  <stringProp name="Header.name">Content-Type</stringProp>
+                  <stringProp name="Header.value">{{ login.content_type|jx }}</stringProp>
+                </elementProp>
+              </collectionProp>
+            </HeaderManager>
+            <hashTree/>{% endif %}
+{%- if login.token_path %}
+            <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="Lấy token">
+              <stringProp name="JSONPostProcessor.referenceNames">AUTH_TOKEN</stringProp>
+              <stringProp name="JSONPostProcessor.jsonPathExprs">$.{{ login.token_path|jx }}</stringProp>
+              <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
+              <stringProp name="JSONPostProcessor.defaultValues">NOT_FOUND</stringProp>
+            </JSONPostProcessor>
+            <hashTree/>{% endif %}
+          </hashTree>
+        </hashTree>
+{%- endif %}
+        <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="{{ sc.uc_code|jx }} :: TRANSACTION">
+          <boolProp name="TransactionController.includeTimers">false</boolProp>
+          <boolProp name="TransactionController.parent">false</boolProp>
+        </TransactionController>
+        <hashTree>
+{%- if auth_mode == 'login_per_vu' and login.token_path %}
+          <!-- token đăng nhập chỉ gắn cho các bước nghiệp vụ (không gắn lên chính request LOGIN) -->
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Token đăng nhập">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">{{ login.token_header|jx }}</stringProp>
+                <stringProp name="Header.value">{{ login.token_prefix|jxf }}${AUTH_TOKEN}</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+{%- endif %}
+{%- for st in sc.steps %}
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="{{ sc.uc_code|jx }} :: {{ st.name|jx }}">
+{%- if st.body %}
+            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="" elementType="HTTPArgument">
+                  <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                  <stringProp name="Argument.value">{{ st.body|jx }}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+{%- else %}
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments">
+              <collectionProp name="Arguments.arguments"/>
+            </elementProp>
+{%- endif %}
+            <stringProp name="HTTPSampler.protocol">{{ st.u.protocol }}</stringProp>
+            <stringProp name="HTTPSampler.domain">{{ st.u.host|jx }}</stringProp>
+            <stringProp name="HTTPSampler.port">{{ st.u.port }}</stringProp>
+            <stringProp name="HTTPSampler.path">{{ st.u.path|jx }}</stringProp>
+            <stringProp name="HTTPSampler.method">{{ st.method }}</stringProp>
+            <stringProp name="HTTPSampler.contentEncoding">UTF-8</stringProp>
+            <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          </HTTPSamplerProxy>
+          <hashTree>
+{%- if st.content_type or st.use or st.headers %}
+            <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Header riêng của bước">
+              <collectionProp name="HeaderManager.headers">
+{%- if st.content_type %}
+                <elementProp name="" elementType="Header">
+                  <stringProp name="Header.name">Content-Type</stringProp>
+                  <stringProp name="Header.value">{{ st.content_type|jx }}</stringProp>
+                </elementProp>{% endif %}
+{%- for hk, hv in st.headers.items() %}
+                <elementProp name="" elementType="Header">
+                  <stringProp name="Header.name">{{ hk|jx }}</stringProp>
+                  <stringProp name="Header.value">{{ hv|jx }}</stringProp>
+                </elementProp>{% endfor %}
+{%- if st.use %}
+                <elementProp name="" elementType="Header">
+                  <stringProp name="Header.name">Authorization</stringProp>
+                  <stringProp name="Header.value">Bearer ${{ '{' }}{{ st.use }}}</stringProp>
+                </elementProp>{% endif %}
+              </collectionProp>
+            </HeaderManager>
+            <hashTree/>{% endif %}
+{%- if st.extract %}
+            <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="Trích {{ st.var }}">
+              <stringProp name="JSONPostProcessor.referenceNames">{{ st.var }}</stringProp>
+              <stringProp name="JSONPostProcessor.jsonPathExprs">$.{{ st.extract|jx }}</stringProp>
+              <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
+              <stringProp name="JSONPostProcessor.defaultValues">NOT_FOUND</stringProp>
+            </JSONPostProcessor>
+            <hashTree/>{% endif %}
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Status 2xx/3xx">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="49586">[23]\d\d</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">1</intProp>
+            </ResponseAssertion>
+            <hashTree/>
+{%- if st.login_guard %}
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Không bị chuyển về trang đăng nhập (mất phiên)">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="0">{{ login_page_re|x }}</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.test_field">Assertion.sample_label</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">6</intProp>
+              <stringProp name="Assertion.custom_message">SESSION_LOST: bị chuyển về trang đăng nhập</stringProp>
+            </ResponseAssertion>
+            <hashTree/>
+{%- endif %}
+          </hashTree>
+{%- if st.think_ms > 0 %}
+          <TestAction guiclass="TestActionGui" testclass="TestAction" testname="Think time {{ st.think_ms }}ms">
+            <intProp name="ActionProcessor.action">1</intProp>
+            <intProp name="ActionProcessor.target">0</intProp>
+            <stringProp name="ActionProcessor.duration">{{ st.think_ms }}</stringProp>
+          </TestAction>
+          <hashTree/>
+{%- endif %}
+{%- endfor %}
+        </hashTree>
+        <TestAction guiclass="TestActionGui" testclass="TestAction" testname="Think time giữa các vòng">
+          <intProp name="ActionProcessor.action">1</intProp>
+          <intProp name="ActionProcessor.target">0</intProp>
+          <stringProp name="ActionProcessor.duration">{{ think_ms }}</stringProp>
+        </TestAction>
+        <hashTree/>
+      </hashTree>
+{%- endfor %}{% endfor %}
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>

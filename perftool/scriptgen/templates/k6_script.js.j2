@@ -1,0 +1,141 @@
+// ============================================================================
+//  Script k6 được sinh tự động bởi PerfTool - {{ generated_at }}
+//  Dự án   : {{ project_name|oneline }}
+//  Kịch bản: {{ scenario_name }} | VUs: {{ vus }} | Thời lượng: {{ duration|oneline }}
+//  Chạy    : k6 run --out csv=raw.csv --summary-export=summary.json {{ file_name }}
+//  Tài khoản đọc từ biến môi trường PERF_USERNAME / PERF_PASSWORD
+// ============================================================================
+import http from 'k6/http';
+import { check, group, sleep } from 'k6';
+import { Counter } from 'k6/metrics';
+
+const AUTH_MODE = {{ auth_mode|tojson }};
+const USERNAME = __ENV.PERF_USERNAME || '';
+const PASSWORD = __ENV.PERF_PASSWORD || '';
+// Nhiều tài khoản: PerfTool ghi file tạm accounts.json ngay trước khi chạy và xoá ngay sau khi chạy.
+// VU thứ i dùng tài khoản thứ (i-1) mod N. Không có file -> mọi VU dùng PERF_USERNAME / PERF_PASSWORD.
+let ACCOUNTS = [];
+try { ACCOUNTS = JSON.parse(open('./accounts.json')); } catch (e) { ACCOUNTS = []; }
+
+function myAccount() {
+  if (ACCOUNTS.length) {
+    const a = ACCOUNTS[(__VU - 1) % ACCOUNTS.length];
+    return [a.u, a.p];
+  }
+  return [USERNAME, PASSWORD];
+}
+const STATIC_HEADERS = {{ static_headers|tojson }};
+const COOKIES = {{ cookies|tojson }};
+const LOGIN = {{ login|tojson }};
+const HTTP_TIMEOUT = '{{ http_timeout }}s';
+const LOGIN_PAGE_RE = /(login|dang-nhap|signin|sign-in|auth)/i;
+// request bị chuyển về trang đăng nhập (mất phiên): HTTP vẫn 200 nhưng KHÔNG phải kết quả nghiệp vụ.
+// PerfTool đọc metric này và tính các request đó là LỖI (tránh báo cáo "Đạt" khi đang đo trang đăng nhập).
+const SESSION_LOST = new Counter('perftool_session_lost');
+
+export const options = {
+  insecureSkipTLSVerify: {{ 'true' if insecure_tls else 'false' }},
+  // không giữ nội dung phản hồi trong RAM (soak nhiều giờ / phản hồi lớn làm máy bắn tải cạn bộ nhớ);
+  // bước cần đọc phản hồi (đăng nhập lấy token, trích token) tự bật responseType: 'text'
+  discardResponseBodies: true,
+  noCookiesReset: true,   // giữ phiên đăng nhập (cookie) giữa các vòng lặp của cùng 1 VU
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
+  scenarios: {
+{%- for sc in scenarios %}
+    '{{ sc.key }}': {
+      executor: 'ramping-vus',
+      startVUs: 0,
+      stages: [{% for st in sc.stages %}{ duration: '{{ st.duration_s }}s', target: {{ st.target }} }{% if not loop.last %}, {% endif %}{% endfor %}],
+      gracefulRampDown: '30s',
+      exec: '{{ sc.fn }}',
+      tags: { uc: {{ sc.uc_code|tojson }}, uc_key: '{{ sc.key }}' },
+    },
+{%- endfor %}
+  },
+  thresholds: {
+    // chỉ tính request nghiệp vụ (bỏ LOGIN) – khớp cách PerfTool đánh giá ở bước 8
+    'http_req_duration{kind:step}': ['p(95)<{{ p95_threshold }}'],
+    'http_req_failed{kind:step}': ['rate<{{ error_rate_threshold }}'],
+    perftool_session_lost: ['count<1'],
+{%- for sc in scenarios %}
+    'http_req_duration{kind:step,uc_key:{{ sc.key }}}': ['p(95)<{{ sc.p95_threshold }}'],
+{%- endfor %}
+  },
+};
+
+// Biến theo từng VU (mỗi VU đăng nhập 1 lần)
+let authHeaders = null;
+const tokens = {};   // token trích từ các bước (chuỗi token, vd GetToken -> API domain khác)
+
+function getPath(obj, path) {
+  return path.split('.').reduce((o, k) => (o && o[k] !== undefined ? o[k] : null), obj);
+}
+
+function ensureAuth(ucCode) {
+  if (authHeaders !== null) return authHeaders;
+  authHeaders = Object.assign({}, AUTH_MODE === 'static_headers' ? STATIC_HEADERS : {});
+  if (AUTH_MODE === 'static_headers') {
+    const jar = http.cookieJar();
+    for (const c of COOKIES) jar.set(c.url, c.name, c.value);
+  }
+  if (AUTH_MODE === 'login_per_vu' && LOGIN.url) {
+    const [user, pass] = myAccount();
+    const enc = (v) => (LOGIN.urlencoded ? encodeURIComponent(v) : (LOGIN.json ? JSON.stringify(v).slice(1, -1) : v));
+    const body = LOGIN.body
+      .split({% raw %}'{{USERNAME}}'{% endraw %}).join(enc(user))
+      .split({% raw %}'{{PASSWORD}}'{% endraw %}).join(enc(pass));
+    const res = http.request(LOGIN.method, LOGIN.url, body, {
+      headers: LOGIN.content_type ? { 'Content-Type': LOGIN.content_type } : {},
+      tags: { name: ucCode + ' :: LOGIN', kind: 'login' },
+      timeout: HTTP_TIMEOUT,
+      responseType: 'text',
+    });
+    check(res, { 'đăng nhập thành công': (r) => r.status >= 200 && r.status < 400 });
+    if (res.status >= 400) console.warn('Đăng nhập thất bại (HTTP ' + res.status + ') với tài khoản ' + user);
+    if (LOGIN.token_path) {
+      try {
+        const token = getPath(res.json(), LOGIN.token_path);
+        if (token) authHeaders[LOGIN.token_header] = LOGIN.token_prefix + token;
+      } catch (e) { /* phản hồi không phải JSON */ }
+    }
+  }
+  return authHeaders;
+}
+
+function call(ucCode, step, headers) {
+  const h = Object.assign({}, headers, step.headers || {});
+  if (step.content_type) h['Content-Type'] = step.content_type;
+  if (step.use && tokens[step.use]) h['Authorization'] = 'Bearer ' + tokens[step.use];
+  const res = http.request(step.method, step.url, step.body ? step.body : null, {
+    headers: h,
+    tags: { name: ucCode + ' :: ' + step.name, kind: 'step' },
+    timeout: HTTP_TIMEOUT,
+    responseType: step.extract ? 'text' : 'none',
+  });
+  const lost = LOGIN_PAGE_RE.test(res.url || '') && !LOGIN_PAGE_RE.test(step.url);
+  if (lost) SESSION_LOST.add(1, { name: ucCode + ' :: ' + step.name });
+  check(res, {
+    [step.name + ' - status 2xx/3xx']: (r) => r.status >= 200 && r.status < 400,
+    [step.name + ' - không bị chuyển về trang đăng nhập']: () => !lost,
+  });
+  if (step.extract) {
+    try {
+      const t = getPath(res.json(), step.extract);
+      if (t) tokens[step.var] = t;
+    } catch (e) { /* phản hồi không phải JSON */ }
+  }
+  if (step.think > 0) sleep(step.think);
+  return res;
+}
+{% for sc in scenarios %}
+// ---------------------------------------------------------------- {{ sc.uc_code|oneline }} - {{ sc.uc_name|oneline }}
+const STEPS_{{ loop.index }} = {{ sc.steps|tojson(indent=2) }};
+
+export function {{ sc.fn }}() {
+  const headers = ensureAuth({{ sc.uc_code|tojson }});
+  group({{ (sc.uc_code ~ ' - ' ~ sc.uc_name)|tojson }}, function () {
+    for (const step of STEPS_{{ loop.index }}) call({{ sc.uc_code|tojson }}, step, headers);
+  });
+  sleep({{ think_time }});
+}
+{% endfor %}

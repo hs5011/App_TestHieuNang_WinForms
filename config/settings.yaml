@@ -1,0 +1,169 @@
+# ============================================================
+#  Cấu hình chung cho PerfTool (có thể chỉnh sửa trực tiếp)
+# ============================================================
+
+tools:
+  # Để trống => tự dò trong PATH. Có thể trỏ thẳng tới file thực thi.
+  k6_path: ""
+  jmeter_path: ""          # vd: C:\Tools\apache-jmeter-5.6.3\bin\jmeter.bat
+
+crawler:
+  headless: false          # true: chạy ẩn trình duyệt
+  # Kích thước cửa sổ trình duyệt khi quét: "maximized" = mở toàn màn hình, trang co giãn theo cửa sổ
+  # (khi chạy ẩn tự dùng 1920x1080); hoặc cố định dạng "1440x900".
+  window_size: maximized
+  timeout_ms: 30000
+  max_pages_per_module: 5  # số trang con tối đa quét mỗi phân hệ
+  max_depth: 1             # độ sâu duyệt link bên trong 1 phân hệ
+  wait_after_load_ms: 1500 # chờ thêm để XHR/fetch hoàn tất
+  # Bỏ qua các link có chứa từ khoá này (tránh đăng xuất / thao tác nguy hiểm)
+  # (so khớp không dấu, bỏ ký tự - _ và khoảng trắng: "log-off" khớp /Account/LogOff, "dangxuat" khớp nhãn "Đăng xuất")
+  exclude_keywords: ["logout", "logoff", "dangxuat", "signout", "signoff", "thoat", "delete", "xoa", "remove"]
+  # Quét màn hình popup/modal (bật ở bước 3): chỉ bấm nút có nhãn chứa từ trong popup_triggers và KHÔNG chứa
+  # từ nào trong popup_blacklist. Không bao giờ bấm nút bên trong popup; đóng popup bằng Esc / nút đóng.
+  max_popups_per_page: 5
+  popup_triggers: ["xem", "chi tiết", "thêm", "tạo mới", "sửa", "chỉnh sửa", "detail", "view", "add", "new", "edit",
+                   "visibility", "info"]
+  popup_blacklist: ["xoá", "xóa", "delete", "remove", "lưu", "save", "gửi", "send", "duyệt", "approve", "ký", "sign",
+                    "chuyển", "huỷ", "hủy", "cancel", "đồng ý", "xác nhận", "confirm", "submit", "đăng xuất", "logout",
+                    "xuất", "export", "in ", "print", "tải", "download", "upload", "import", "khoá", "khóa", "lock",
+                    "reset", "đặt lại", "từ chối", "reject", "thu hồi", "phát hành", "publish",
+                    "hoàn thành", "complete", "finish", "kết thúc", "tiếp nhận", "nhận việc", "trả lại", "đánh dấu",
+                    "khôi phục", "restore", "nhân bản", "sao chép", "copy", "clone", "kích hoạt", "activate",
+                    "vô hiệu", "disable", "đóng băng", "hủy bỏ", "huỷ bỏ",
+                    "archive", "lưu trữ", "mark as read", "mark as unread", "đã đọc", "đã xem", "resend", "gửi lại",
+                    "reopen", "mở lại", "undelete", "dismiss", "bỏ qua", "chấp nhận", "accept", "đồng bộ", "sync",
+                    "forward", "ghim", "bỏ ghim", "pin", "unpin", "theo dõi", "bỏ theo dõi", "follow", "unfollow",
+                    "đóng việc", "đóng hồ sơ", "close", "like", "thích", "subscribe", "đăng ký"]
+  # Quét tương tác mở rộng (cùng công tắc với quét popup ở bước 3):
+  #  - menu ⋮ / "..." / nút thả xuống trên dòng đầu tiên của bảng: mở menu, bấm từng mục KHÔNG thuộc popup_blacklist
+  #    (mục mở popup -> ghi popup; mục chuyển trang -> ghi trang con rồi quay lại);
+  #  - tab trong trang, nút Tìm kiếm, nút chuyển sang trang 2 của bảng.
+  max_menus_per_page: 3        # số nút menu (⋮, thả xuống) mở trên mỗi trang (dòng đầu bảng + thanh công cụ)
+  max_menu_items: 8            # số mục menu được bấm thử mỗi menu
+  max_tabs_per_page: 4
+  search_words: ["tìm kiếm", "tìm", "search", "lọc", "filter", "tra cứu", "xem báo cáo", "áp dụng", "apply"]
+  # Bộ chặn ghi dữ liệu: trong lúc crawler bấm thử (và khi ghi thao tác thủ công nếu bật), request ghi dữ liệu bị HUỶ
+  # trước khi tới máy chủ (vẫn được ghi nhận để sinh kịch bản test, mặc định tắt trong kịch bản). Quy tắc với
+  # request XHR/fetch/form không phải GET:
+  #   - đoạn cuối đường dẫn bắt đầu bằng read_prefixes (GetAll, Search, ListByUser…) -> cho qua (truy vấn);
+  #   - PUT/PATCH/DELETE, hoặc URL có từ ghi (write_keywords, xem cách so khớp bên dưới) -> LUÔN chặn ở mọi mức;
+  #   - mức "keyword" (khi tải trang / ghi thủ công mặc định): POST không rõ nghĩa được cho qua, form POST cả trang bị chặn;
+  #   - mức "strict" (tự dùng khi crawler BẤM THỬ ở quét tương tác; tuỳ chọn khi ghi thủ công): chặn mọi POST trừ khi
+  #     đoạn cuối mang tên truy vấn (read_prefixes), đường dẫn chứa read_keywords, hoặc đoạn cuối bắt đầu bằng
+  #     weak_read_prefixes. Request chỉ được BẬT sẵn trong kịch bản test (bước 5) khi qua được mức "strict" và không bị chặn.
+  write_guard: true
+  # Cách so khớp (đường dẫn đã bỏ dấu, không phân biệt hoa thường, tách từ theo - _ / và chữ hoa CheckAndApprove):
+  #   "xoa*" = một từ BẮT ĐẦU bằng xoa (xoabanghi, XoaVanBan); "=read" hoặc từ ≤ 3 ký tự (gui, huy, ky) = NGUYÊN một từ;
+  #   từ dài hơn = chứa ở bất kỳ đâu (capnhat khớp cap-nhat-trang-thai). Xét đoạn cuối có nghĩa của đường dẫn (bỏ mã
+  #   bản ghi /5) + query string (?action=delete); đoạn giữa (/api/delete/items) chỉ xét khi đoạn cuối không mang tên truy vấn.
+  write_keywords: ["create", "insert", "add*", "save", "update", "edit", "delete", "remove", "approve", "reject", "submit",
+                   "send", "assign", "upload", "import", "complete", "finish", "cancel", "restore", "sign", "publish",
+                   "lock", "reset", "change", "move", "transfer", "extend", "confirm", "accept", "forward", "revoke",
+                   "=read", "markread", "archive", "destroy", "purge",
+                   "luu*", "them", "sua*", "xoa*", "duyet", "phancong", "giahan", "hoanthanh", "tiepnhan",
+                   "capnhat", "=trinh", "trinhky", "trinhduyet", "gui", "huy", "ky", "kyso", "tralai", "thuhoi", "tuchoi", "xacnhan", "dongy",
+                   "banhanh", "phathanh", "xuly", "chuyenxuly", "chuyentiep", "chuyenhoso", "chuyenvanban", "danhdau",
+                   "daxem", "dadoc", "khoiphuc", "mokhoa", "=khoa", "phanphoi", "ketthuc", "dangky",
+                   "markseen", "=seen", "markunread", "dismiss", "resend", "reopen", "undelete", "=sync", "dongbo",
+                   "chapnhan", "=ack", "=pin", "=unpin", "=touch", "=open", "=visit", "=follow", "=unfollow",
+                   "subscribe", "=like", "=unlike", "=vote", "=star", "=unstar", "=mark", "=close", "=hide", "=snooze",
+                   "=mute", "readall"]
+  # GET do trang gọi bằng JS (xhr/fetch) có từ ghi ở trên (…/markread?id=1, Handler.ashx?action=delete) cũng bị chặn khi
+  # quét (nhiều hệ thống cũ ghi dữ liệu bằng GET) và mặc định TẮT trong kịch bản test (bước 5). false = cho GET qua.
+  block_get_writes: true
+  # Mức bộ chặn ghi khi crawler tự điều hướng / tải trang (3a, 3b): "strict" = chỉ cho qua POST mang tên truy vấn (GetAll,
+  # Search…) – POST ghi nhận lượt xem lúc tải trang (/api/log/visit, /api/hoso/view) bị huỷ; "keyword" = lỏng hơn (chỉ
+  # chặn POST có từ ghi), dùng khi trang cần POST không rõ tên để tải dữ liệu.
+  page_load_guard: strict
+  read_prefixes: ["get", "search", "list", "find", "filter", "query", "count", "check", "export", "view", "load",
+                  "fetch", "paging", "report", "statistic", "thongke", "tim", "xem", "lay", "negotiate",
+                  "danhsach", "chitiet", "tracuu", "timkiem", "baocao", "dsach"]
+  # Mức "strict": đoạn cuối đường dẫn bắt đầu bằng các từ này (PostData, ExecuteStore…) được cho qua nếu không chứa write_keywords
+  weak_read_prefixes: ["post", "execute", "hf_execute", "run"]
+  read_keywords: ["search", "list", "query", "filter", "paging", "report", "statistic", "thong-ke", "negotiate",
+                  "detail", "collect", "installations", "getaccountinfo", "danh-sach", "chi-tiet", "bao-cao",
+                  "tra-cuu", "tim-kiem"]
+  # Ghi thao tác thủ công (bước 3): thời gian ghi tối đa mỗi lần (phút)
+  record_max_minutes: 60
+  # Chỉ ghi nhận request có loại sau
+  capture_resource_types: ["xhr", "fetch", "document"]
+  # Bỏ qua tài nguyên tĩnh
+  static_extensions: [".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".woff", ".woff2", ".ttf", ".ico", ".map", ".webp"]
+
+# An toàn kết nối
+security:
+  # true: bỏ qua kiểm tra chứng chỉ HTTPS cho MỌI dự án (crawler, kiểm tra đăng nhập, script k6). Nên để false và chỉ
+  # bật theo từng dự án ở bước 1 › Tuỳ chọn nâng cao khi máy chủ kiểm thử dùng chứng chỉ tự ký.
+  skip_tls_verify: false
+  # true: tự tin cậy khoá máy chủ SSH lần đầu kết nối ở mọi nơi (kể cả khi đang chạy test). false (khuyến nghị): khoá
+  # máy chủ chỉ được ghi nhận khi bấm "Kiểm tra kết nối" ở bước 6 (lưu ở workspace/known_hosts); khoá đổi -> từ chối.
+  ssh_auto_add_host: false
+
+# Trọng số các tiêu chí đánh giá độ phức tạp UC (tổng không bắt buộc = 1, sẽ tự chuẩn hoá)
+scoring:
+  top_n: 3
+  weights:
+    steps: 0.15            # số bước thực hiện
+    screens: 0.10          # số màn hình liên quan
+    api_count: 0.20        # số API/request
+    crud: 0.15             # thao tác ghi (Thêm/Sửa/Xoá/Duyệt...)
+    data_processing: 0.20  # xử lý dữ liệu (tìm kiếm, thống kê, báo cáo, import/export...)
+    response_time: 0.20    # thời gian phản hồi API đo được
+  keywords:
+    crud: ["thêm", "tạo", "sửa", "cập nhật", "xoá", "xóa", "duyệt", "phê duyệt", "lưu", "gửi", "trình", "phân công",
+           "giao", "chuyển", "ký", "add", "create", "edit", "update", "delete", "save", "approve", "submit", "assign"]
+    data_processing: ["tìm kiếm", "tra cứu", "lọc", "thống kê", "báo cáo", "tổng hợp", "xuất", "import", "nhập khẩu",
+                      "export", "in ", "biểu đồ", "dashboard", "theo dõi", "danh sách", "search", "report", "statistic",
+                      "filter", "chart", "excel", "pdf"]
+  # Nhóm thao tác: CRUD và Xử lý dữ liệu được tính bằng SỐ LOẠI thao tác khác nhau xuất hiện trong tên/mô tả UC
+  # (và nhãn nút trên màn hình), không đếm số lần từ khoá lặp lại.
+  operation_groups:
+    crud:
+      them_moi: ["thêm", "tạo mới", "tạo", "add", "create", "new"]
+      sua: ["sửa", "cập nhật", "chỉnh sửa", "edit", "update", "modify"]
+      xoa: ["xoá", "xóa", "huỷ", "hủy", "delete", "remove"]
+      duyet: ["duyệt", "phê duyệt", "ký", "từ chối", "approve", "reject", "sign"]
+      gui_chuyen: ["gửi", "trình", "chuyển", "phân công", "giao", "submit", "send", "assign", "forward"]
+      luu_tai_len: ["lưu", "tải lên", "đính kèm", "save", "upload", "attach"]
+    data_processing:
+      tim_kiem: ["tìm kiếm", "tra cứu", "lọc", "search", "filter", "query"]
+      thong_ke: ["thống kê", "báo cáo", "tổng hợp", "biểu đồ", "dashboard", "report", "statistic", "chart"]
+      xuat_nhap: ["xuất", "import", "nhập khẩu", "export", "excel", "pdf", "in ấn", "download"]
+      danh_sach: ["danh sách", "phân trang", "sắp xếp", "list", "paging", "sort"]
+      theo_doi: ["theo dõi", "giám sát", "cảnh báo", "monitor", "tracking", "alert"]
+  # Mức trần để quy về thang 0-1 (giá trị >= mức trần => điểm tối đa)
+  #   auto : lấy p90 của chính danh sách UC trong dự án (không nhỏ hơn cap_floor) -> tiêu chí nào cũng trải đều 0-1
+  #   fixed: dùng các giá trị trong 'caps' bên dưới
+  caps_mode: auto
+  caps:
+    steps: 15
+    screens: 5
+    api_count: 20
+    crud: 6
+    data_processing: 6
+    response_time_ms: 2000
+  cap_floor:
+    steps: 3
+    screens: 2
+    api_count: 3
+    crud: 2
+    data_processing: 2
+    response_time_ms: 300
+
+# Cấu hình mặc định cho kịch bản test
+test_defaults:
+  scenario_type: load      # smoke | load | stress | spike | soak
+  vus: 50
+  duration: "5m"
+  ramp_up: "1m"
+  ramp_down: "30s"
+  think_time_s: 1.0
+  p95_threshold_ms: 3000
+  error_rate_threshold: 0.01   # 1%
+  environment: staging
+
+report:
+  template: "Template_BaoCaoHieuNang.docx"   # file mẫu (dùng làm style/lề trang)
+  organization: ""
+  author: ""
